@@ -1,11 +1,14 @@
-import type { User } from "@supabase/supabase-js";
+export {};
 
 declare global {
   namespace Express {
     interface Request {
-      user?: User;
+      authUser?: {
+        id: string;
+        email: string;
+        name: string;
+        role: "APPLICANT" | "KYC_OFFICER" | "COMPLIANCE_OFFICER";
+      };
     }
   }
 }
-
-export {};
