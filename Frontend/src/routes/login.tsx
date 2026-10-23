@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { AuthCard, DemoNote, Field, Navbar, btn } from "@/components/site";
 import { store } from "@/lib/store";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -22,7 +23,7 @@ function Login() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const { email, password } = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
     const errs: Record<string, string> = {};
@@ -31,15 +32,14 @@ function Login() {
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setLoading(true);
-    setTimeout(() => {
-      try {
-        store.login(email.trim(), password);
-        navigate({ to: "/dashboard" });
-      } catch (err) {
-        setErrors({ form: (err as Error).message });
-        setLoading(false);
-      }
-    }, 400);
+    try {
+      const result = await api.login({ email: email.trim(), password });
+      store.setAuthenticatedUser(result.user);
+      navigate({ to: "/dashboard" });
+    } catch (err) {
+      setErrors({ form: (err as Error).message });
+      setLoading(false);
+    }
   };
 
   return (
@@ -53,7 +53,7 @@ function Login() {
           <button type="submit" className={`${btn.primary} w-full`} disabled={loading}>{loading ? "Logging in…" : "Login"}</button>
         </form>
         <p className="mt-5 text-center text-sm text-muted-foreground">New here? <Link to="/signup" className="font-semibold text-primary hover:underline">Sign Up</Link></p>
-        <DemoNote>Demo mode: log in with an account you created via Sign Up in this browser.</DemoNote>
+        <DemoNote>Use the account registered with the backend.</DemoNote>
       </AuthCard>
     </div>
   );

@@ -37,7 +37,7 @@ export const authService = {
       throw new Error("Supabase did not return a user");
     }
 
-    const user = await userService.saveProfile({
+    const user = await userService.createProfile({
       id: data.user.id,
       name: input.name,
       email: input.email,

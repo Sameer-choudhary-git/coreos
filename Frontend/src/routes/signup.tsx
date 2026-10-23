@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { z } from "zod";
 import { AuthCard, DemoNote, Field, Navbar, btn } from "@/components/site";
 import { store } from "@/lib/store";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/signup")({
   head: () => ({
@@ -42,7 +43,7 @@ function Signup() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
     const r = schema.safeParse(data);
@@ -52,23 +53,15 @@ function Signup() {
     }
     setErrors({});
     setLoading(true);
-    setTimeout(() => {
-      try {
-        store.signup({
-          name: r.data.name,
-          email: r.data.email,
-          mobile: r.data.mobile,
-          password: r.data.password,
-          pan: r.data.pan,
-          aadhaar: r.data.aadhaar,
-          addressProof: r.data.addressProof,
-        });
-        navigate({ to: "/dashboard" });
-      } catch (err) {
-        setErrors({ email: (err as Error).message });
-        setLoading(false);
-      }
-    }, 500);
+    try {
+      const result = await api.register({ name: r.data.name, email: r.data.email, password: r.data.password });
+      store.setAuthenticatedUser(result.user);
+      if (result.session) navigate({ to: "/dashboard" });
+      else navigate({ to: "/login" });
+    } catch (err) {
+      setErrors({ email: (err as Error).message });
+      setLoading(false);
+    }
   };
 
   return (
@@ -101,7 +94,7 @@ function Signup() {
           <button type="submit" className={`${btn.primary} w-full`} disabled={loading}>{loading ? "Creating account…" : "Sign Up"}</button>
         </form>
         <p className="mt-5 text-center text-sm text-muted-foreground">Already registered? <Link to="/login" className="font-semibold text-primary hover:underline">Login</Link></p>
-        <DemoNote>Demo mode: your details are stored only in this browser. No real account is opened.</DemoNote>
+        <DemoNote>Your account is created in the backend. Keep your credentials safe.</DemoNote>
       </AuthCard>
     </div>
   );

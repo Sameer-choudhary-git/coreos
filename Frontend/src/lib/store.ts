@@ -1,7 +1,8 @@
-// Demo-only mock state persisted in localStorage. Replace with real APIs later.
+import type { ApiUser } from "./api";
 import { useEffect, useState } from "react";
 
 export type User = {
+  id?: string;
   name: string;
   email: string;
   mobile: string;
@@ -60,6 +61,11 @@ export const store = {
       throw new Error("An account with this email already exists.");
     write(K.users, [...users, u]);
     write(K.session, u.email);
+  },
+  setAuthenticatedUser(user: ApiUser) {
+    const users = store.users().filter((x) => x.email.toLowerCase() !== user.email.toLowerCase());
+    write(K.users, [...users, { id: user.id, name: user.name, email: user.email, mobile: "", password: "", pan: "", aadhaar: "", addressProof: "aadhaar" }]);
+    write(K.session, user.email);
   },
   login(email: string, password: string) {
     const u = store.users().find((x) => x.email.toLowerCase() === email.toLowerCase());

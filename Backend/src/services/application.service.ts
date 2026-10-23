@@ -261,6 +261,18 @@ export const applicationService = {
     body: Record<string, unknown>,
     files: Express.Multer.File[],
   ) {
+    const applicant = await prisma.user.findUnique({
+      where: { id: applicantId },
+      select: { id: true },
+    });
+
+    if (!applicant) {
+      throw new ApplicationSubmissionError(
+        401,
+        "Authenticated user profile not found",
+      );
+    }
+
     const applicationData = validateApplication(body);
 
     if (files.length < 3 || files.length > 10) {
@@ -290,6 +302,14 @@ export const applicationService = {
     // Validate types, detect duplicates, and OCR before Storage upload.
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
+      const declaredDocType = types[index];
+
+      if (!file || !declaredDocType) {
+        throw new ApplicationSubmissionError(
+          422,
+          "Each uploaded document must have a declared document type",
+        );
+      }
 
       let mimeType: ReturnType<typeof detectDocumentMimeType>;
       let ocrText: string;
@@ -329,7 +349,7 @@ export const applicationService = {
         sha256,
         mimeType,
         extension: getExtension(file).slice(1),
-        declaredDocType: types[index],
+        declaredDocType,
         ocrText,
         storagePath: `${applicationId}/${randomUUID()}${getExtension(file).toLowerCase()}`,
       });
@@ -338,7 +358,21 @@ export const applicationService = {
     const uploadedPaths: string[] = [];
 
     try {
-      const documentRows = [];
+      const documentRows: Array<{
+        id: string;
+        documentNo: string;
+        applicationId: string;
+        declaredDocType: DocumentType;
+        fileName: string;
+        storagePath: string;
+        sha256: string;
+        mimeType: string;
+        sizeBytes: number;
+        ocrText: string;
+        ocrStatus: string;
+        ocrVersion: string;
+        extractionStatus: string;
+      }> = [];
 
       // Store original binary documents privately.
       for (const document of prepared) {

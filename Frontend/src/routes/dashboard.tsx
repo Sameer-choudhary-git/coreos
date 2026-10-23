@@ -3,8 +3,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, FileCheck2, LogOut, Upload, XCircle } from "lucide-react";
 import { Field, Logo, btn } from "@/components/site";
 import { StatusTimeline } from "@/components/StatusTimeline";
-import { evaluate, now, statusLabel, store, useStore, type Application } from "@/lib/store";
+import { now, statusLabel, store, useStore, type Application } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -51,7 +52,7 @@ function Dashboard() {
           <Logo />
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-muted-foreground sm:inline">{user.name}</span>
-            <button className={btn.ghost} onClick={() => { store.logout(); navigate({ to: "/" }); }}><LogOut className="h-4 w-4" /> Log out</button>
+          <button className={btn.ghost} onClick={() => { api.logout(); store.logout(); navigate({ to: "/" }); }}><LogOut className="h-4 w-4" /> Log out</button>
           </div>
         </div>
       </header>
@@ -115,11 +116,11 @@ function StatusPanel({ app, onResubmit }: { app: Application; onResubmit: () => 
 }
 
 function ApplicationForm({ user, existing, onDone }: { user: { name: string; email: string }; existing: Application | null; onDone: () => void }) {
-  const [docs, setDocs] = useState<Application["docs"]>(existing?.status === "docs_required" ? {} : existing?.docs ?? {});
+  const [docs, setDocs] = useState<Record<string, File>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
     const errs: Record<string, string> = {};
@@ -128,23 +129,38 @@ function ApplicationForm({ user, existing, onDone }: { user: { name: string; ema
     if (!/^[A-Za-z]{5}\d{4}[A-Za-z]$/.test(f.pan ?? "")) errs.pan = "PAN format: ABCDE1234F";
     if (!/^\d{4}$/.test(f.aadhaarLast4 ?? "")) errs.aadhaarLast4 = "Enter only the last 4 digits";
     if (!f.address?.trim() || f.address.trim().length < 10) errs.address = "Enter your full address";
+    if (!f.city?.trim()) errs.city = "Enter your city";
+    if (!f.state?.trim()) errs.state = "Enter your state";
+    if (!/^[1-9]\d{5}$/.test(f.pincode ?? "")) errs.pincode = "Enter a valid six-digit pincode";
+    if (!f.occupationCode?.trim()) errs.occupationCode = "Enter your occupation";
+    if (!f.annualIncome || Number(f.annualIncome) < 0) errs.annualIncome = "Enter your annual income";
     for (const d of docTypes) if (!docs[d.key]) errs[`doc_${d.key}`] = `Upload your ${d.label}`;
     if (!f.consent) errs.consent = "Consent is required to continue";
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setLoading(true);
-    setTimeout(() => {
+    try {
+      await api.submitApplication({
+        fullName: f.fullName.trim(), dob: f.dob, gender: f.gender ?? "",
+        panNumber: f.pan.toUpperCase(), aadhaarLast4: f.aadhaarLast4,
+        mobile: f.mobile, email: user.email, address: f.address.trim(),
+        city: f.city.trim(), state: f.state.trim(), pincode: f.pincode,
+        occupationCode: f.occupationCode.trim(), annualIncome: f.annualIncome,
+        files: docTypes.map((d) => ({ file: docs[d.key], type: d.key === "pan" ? "PAN_CARD" : d.key === "aadhaar" ? "AADHAAR_CARD" : "ELECTRICITY_BILL" })),
+      });
       const base: Application = {
         email: user.email, fullName: f.fullName.trim(), dob: f.dob, pan: f.pan.toUpperCase(), aadhaarLast4: f.aadhaarLast4,
-        address: f.address.trim(), docs, consent: true, status: "submitted", risk: "LOW",
+        address: f.address.trim(), docs: Object.fromEntries(Object.entries(docs).map(([key, file]) => [key, file.name])), consent: true, status: "submitted", risk: "LOW",
         history: [...(existing?.history ?? []), { at: now(), label: existing ? "Application resubmitted" : "Application submitted" }],
       };
-      const r = evaluate(base);
-      const app = { ...base, ...r, history: [...base.history, { at: now(), label: statusLabel[r.status] }] };
+      const app = { ...base, history: [...base.history, { at: now(), label: "Application submitted" }] };
       store.saveApp(app);
       setLoading(false);
       onDone();
-    }, 900);
+    } catch (err) {
+      setErrors({ form: (err as Error).message });
+      setLoading(false);
+    }
   };
 
   return (
@@ -159,6 +175,12 @@ function ApplicationForm({ user, existing, onDone }: { user: { name: string; ema
         <Field label="PAN number" name="pan" maxLength={10} placeholder="ABCDE1234F" defaultValue={existing?.pan} error={errors.pan} className="w-full rounded-lg border border-input bg-surface px-3.5 py-2.5 text-sm uppercase outline-none focus:border-primary" />
         <Field label="Aadhaar — last 4 digits only" name="aadhaarLast4" inputMode="numeric" maxLength={4} placeholder="1234" defaultValue={existing?.aadhaarLast4} error={errors.aadhaarLast4} />
         <div className="sm:col-span-2"><Field label="Residential address" name="address" defaultValue={existing?.address} error={errors.address} /></div>
+        <Field label="City" name="city" error={errors.city} />
+        <Field label="State" name="state" error={errors.state} />
+        <Field label="Pincode" name="pincode" inputMode="numeric" maxLength={6} error={errors.pincode} />
+        <Field label="Occupation" name="occupationCode" error={errors.occupationCode} />
+        <Field label="Annual income" name="annualIncome" type="number" min="0" error={errors.annualIncome} />
+        <Field label="Mobile number" name="mobile" inputMode="numeric" maxLength={10} error={errors.mobile} />
       </div>
       <div>
         <h3 className="mb-3 text-sm font-semibold">Documents</h3>
@@ -171,10 +193,10 @@ function ApplicationForm({ user, existing, onDone }: { user: { name: string; ema
                   file ? "border-success bg-success-soft" : errors[`doc_${d.key}`] ? "border-destructive" : "border-input")}>
                   {file ? <CheckCircle2 className="h-5 w-5 text-success" /> : <Upload className="h-5 w-5 text-primary" />}
                   <span className="font-medium">{d.label}</span>
-                  <span className="max-w-full truncate text-xs text-muted-foreground">{file ? `${file} · Uploaded` : "PDF, JPG or PNG"}</span>
+                  <span className="max-w-full truncate text-xs text-muted-foreground">{file ? `${file.name} · Uploaded` : "PDF, JPG or PNG"}</span>
                   <input type="file" accept=".pdf,image/*" className="sr-only" onChange={(e) => {
-                    const n = e.target.files?.[0]?.name;
-                    if (n) setDocs((p) => ({ ...p, [d.key]: n }));
+                    const file = e.target.files?.[0];
+                    if (file) setDocs((p) => ({ ...p, [d.key]: file }));
                   }} />
                 </label>
                 {errors[`doc_${d.key}`] && <p className="mt-1 text-xs text-destructive">{errors[`doc_${d.key}`]}</p>}

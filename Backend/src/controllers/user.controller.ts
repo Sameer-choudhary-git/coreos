@@ -3,7 +3,7 @@ import { userService } from "../services/user.service.js";
 
 // GET /api/users/me
 export const getMyProfile: RequestHandler = async (req, res) => {
-  const authUser = req.user;
+  const authUser = req.authUser;
 
   if (!authUser) {
     res.status(401).json({
@@ -31,7 +31,7 @@ export const getMyProfile: RequestHandler = async (req, res) => {
 
 // PUT /api/users/me
 export const saveMyProfile: RequestHandler = async (req, res) => {
-  const authUser = req.user;
+  const authUser = req.authUser;
 
   if (!authUser) {
     res.status(401).json({
@@ -59,7 +59,7 @@ export const saveMyProfile: RequestHandler = async (req, res) => {
     return;
   }
 
-  const user = await userService.saveProfile({
+  const user = await userService.updateProfile({
     id: authUser.id,
     name: name.trim(),
     email: authUser.email,

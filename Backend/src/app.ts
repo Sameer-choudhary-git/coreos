@@ -41,7 +41,6 @@ app.use("/api/v1/applications", applicationRoutes);
 // Existing application routes
 app.use("/api/demo-items", demoItemRouter);
 app.use("/api/users", userRouter);
-app.use("/api/v1/applications", applicationRoutes);
 
 // Get the currently authenticated user
 app.get("/api/me", requireAuth, (req, res) => {

@@ -20,14 +20,26 @@ export const userService = {
     });
   },
 
-  saveProfile(input: SaveUserProfileInput) {
-    return prisma.user.upsert({
-      where: { id: input.id },
-      create: {
+  createProfile(input: SaveUserProfileInput) {
+    return prisma.user.create({
+      data: {
         ...input,
         role: "APPLICANT",
       },
-      update: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+  },
+
+  updateProfile(input: SaveUserProfileInput) {
+    return prisma.user.update({
+      where: { id: input.id },
+      data: {
         name: input.name,
         email: input.email,
       },

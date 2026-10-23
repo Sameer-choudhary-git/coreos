@@ -1,0 +1,212 @@
+import type { Request, Response, NextFunction } from "express";
+import { prisma } from "../db/prisma.js";
+
+const ALLOWED_STATUSES = [
+  "SUBMITTED",
+  "EXTRACTING",
+  "AUTO_APPROVED",
+  "IN_REVIEW",
+  "RESUBMISSION_REQUESTED",
+  "PENDING_CHECKER",
+  "APPROVED",
+  "REJECTED",
+  "AUTO_REJECTED",
+  "CLOSED_EXPIRED",
+] as const;
+
+type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
+
+function maskPan(pan: string): string {
+  if (pan.length < 5) return "**********";
+  return `${pan.slice(0, 3)}XXXXX${pan.slice(-2)}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
+/**
+ * GET /api/v1/kyc/applications?status=IN_REVIEW
+ * KYC-officer-only list endpoint. The queue defaults to IN_REVIEW.
+ */
+export const listKycApplications = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const statusParam = typeof req.query.status === "string"
+      ? req.query.status
+      : "IN_REVIEW";
+
+    if (!ALLOWED_STATUSES.includes(statusParam as AllowedStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status filter",
+        allowedStatuses: ALLOWED_STATUSES,
+      });
+    }
+
+    const page = Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1);
+    const pageSizeRaw = Number.parseInt(String(req.query.pageSize ?? "20"), 10) || 20;
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+
+    const [total, rows] = await prisma.$transaction([
+      prisma.application.count({ where: { status: statusParam as AllowedStatus } }),
+      prisma.application.findMany({
+        where: { status: statusParam as AllowedStatus },
+        include: {
+          applicant: { select: { id: true, name: true, email: true } },
+          documents: {
+            select: {
+              id: true,
+              documentNo: true,
+              fileName: true,
+              declaredDocType: true,
+              classifiedDocType: true,
+              mimeType: true,
+              sizeBytes: true,
+              ocrStatus: true,
+              extractionStatus: true,
+              extractedFields: {
+                where: { source: "AI" },
+                select: { fieldName: true, value: true, confidence: true, source: true, version: true },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+          },
+        },
+        orderBy: [
+          { riskCategory: "desc" },
+          { createdAt: "asc" },
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    // Risk sorting in application code gives an explicit HIGH -> MEDIUM -> LOW order.
+    const riskRank: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    rows.sort((a, b) => {
+      const riskOrder = (riskRank[a.riskCategory ?? ""] ?? 3) - (riskRank[b.riskCategory ?? ""] ?? 3);
+      return riskOrder || a.createdAt.getTime() - b.createdAt.getTime();
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: rows.map((application) => ({
+        id: application.id,
+        applicationNo: application.applicationNo,
+        applicationDate: application.applicationDate,
+        applicant: application.applicant,
+        fullName: application.fullName,
+        panNumber: maskPan(application.panNumber),
+        status: application.status,
+        decision: application.decision,
+        reasonCodes: application.reasonCodes,
+        nameMatchScore: application.nameMatchScore?.toFixed(4) ?? null,
+        riskCategory: application.riskCategory,
+        rekycDueDate: application.rekycDueDate,
+        aiSummary: application.aiSummary,
+        aiTags: application.aiTags,
+        aiModel: application.aiModel,
+        aiProcessedAt: application.aiProcessedAt,
+        documents: application.documents.map((document) => ({
+          id: document.id,
+          documentNo: document.documentNo,
+          fileName: document.fileName,
+          declaredDocType: document.declaredDocType,
+          classifiedDocType: document.classifiedDocType,
+          mimeType: document.mimeType,
+          sizeBytes: document.sizeBytes,
+          ocrStatus: document.ocrStatus,
+          extractionStatus: document.extractionStatus,
+          extractedFields: document.extractedFields.map((field) => ({
+            ...field,
+            confidence: Number(field.confidence),
+          })),
+        })),
+        createdAt: application.createdAt,
+      })),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/kyc/applications/:applicationId
+ * Full review details include OCR text. Every document-text view is audited.
+ */
+export const getKycApplicationDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    if (!req.authUser) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const applicationId = req.params.applicationId;
+    const application = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        applicant: { select: { id: true, name: true, email: true } },
+        documents: {
+          include: {
+            extractedFields: {
+              orderBy: { createdAt: "asc" },
+            },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+        decisions: { orderBy: { createdAt: "desc" } },
+        officerActions: { orderBy: { createdAt: "desc" } },
+        auditLogs: { orderBy: { createdAt: "desc" }, take: 100 },
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+
+    await prisma.auditLog.createMany({
+      data: application.documents.map((document) => ({
+        applicationId: application.id,
+        actorId: req.authUser!.id,
+        documentId: document.id,
+        eventType: "DOCUMENT_TEXT_VIEWED",
+        metadata: { role: req.authUser!.role, surface: "KYC_REVIEW_DETAILS" },
+      })),
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...application,
+        nameMatchScore: application.nameMatchScore?.toFixed(4) ?? null,
+        documents: application.documents.map((document) => ({
+          ...document,
+          extractedFields: document.extractedFields.map((field) => ({
+            ...field,
+            confidence: Number(field.confidence),
+          })),
+        })),
+      },
+    });
+  } catch (error) {
+    // Prisma may throw for malformed UUIDs; report not-found for a malformed ID
+    // rather than exposing database error details to the client.
+    if (error instanceof Error && /Invalid.*UUID|uuid/i.test(error.message)) {
+      return res.status(400).json({ success: false, message: "applicationId must be a valid UUID" });
+    }
+    next(error);
+  }
+};

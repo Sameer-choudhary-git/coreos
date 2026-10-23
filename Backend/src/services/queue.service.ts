@@ -24,7 +24,7 @@ export const queueService = {
 
     return {
       queue: QUEUE_NAME,
-      messageId: String(rows[0].send),
+      messageId: String(rows[0]?.send),
       message,
     };
   },
