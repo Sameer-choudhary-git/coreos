@@ -19,7 +19,8 @@ export const register = async (
     ) {
       return res.status(400).json({
         success: false,
-        message: "Name, valid email, and password of at least 8 characters are required",
+        message:
+          "Name, valid email, and password of at least 8 characters are required",
       });
     }
 
@@ -72,6 +73,23 @@ export const login = async (
       data: result,
     });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "Invalid email or password") {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid email or password",
+        });
+      }
+
+      if (error.message === "User profile not found") {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Your authentication account exists, but your application profile is missing. Contact the administrator.",
+        });
+      }
+    }
+
     next(error);
   }
 };

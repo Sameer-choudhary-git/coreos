@@ -5,7 +5,9 @@ import helmet from "helmet";
 import demoItemRouter from "./routes/demoItem.routes.js";
 import userRouter from "./routes/user.routes.js";
 import authRoutes from "./routes/auth.routes.js";
+import applicationRoutes from "./routes/application.routes.js";
 
+import rbacTestRoutes from "./routes/rbacTest.routes.js";
 import {
   errorHandler,
   notFoundHandler,
@@ -31,8 +33,9 @@ app.get("/health", (_req, res) => {
 });
 
 // Authentication routes
-app.use("/api/v1/auth", authRoutes);
 
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/applications", applicationRoutes);
 // Existing application routes
 app.use("/api/demo-items", demoItemRouter);
 app.use("/api/users", userRouter);
@@ -61,7 +64,10 @@ app.use(
 app.get("/openapi.json", (_req, res) => {
   res.json(openApiSpec);
 });
-
+// Temporary RBAC test endpoints. Never expose in production.
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api/v1/rbac-test", rbacTestRoutes);
+}
 // Error handling
 app.use(notFoundHandler);
 app.use(errorHandler);
