@@ -19,10 +19,276 @@ model DemoItem {
   updatedAt DateTime @updatedAt
 }
 
-model User {
-  id    String @id @db.Uuid
-  name  String
-  email String @unique
 
-  @@map("users")
+enum UserRole {
+  APPLICANT
+  KYC_OFFICER
+  COMPLIANCE_OFFICER
 }
+
+enum ApplicationStatus {
+  SUBMITTED
+  EXTRACTING
+  AUTO_APPROVED
+  IN_REVIEW
+  RESUBMISSION_REQUESTED
+  PENDING_CHECKER
+  APPROVED
+  REJECTED
+  AUTO_REJECTED
+  CLOSED_EXPIRED
+}
+
+enum DocumentType {
+  PAN_CARD
+  AADHAAR_CARD
+  ELECTRICITY_BILL
+  BANK_STATEMENT
+  DRIVING_LICENCE
+  OTHER
+}
+
+enum Decision {
+  APPROVE
+  REVIEW
+  REJECT
+}
+
+enum RiskCategory {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ExtractionSource {
+  MOCK
+  AI
+  OFFICER
+}
+
+enum OfficerActionType {
+  RECOMMENDATION
+  CHECKER_DECISION
+  FIELD_CORRECTION
+}
+
+enum OfficerAction {
+  APPROVE
+  REJECT
+  REQUEST_RESUBMISSION
+  SEND_BACK
+}
+
+enum WatchlistType {
+  SANCTIONS
+  PEP
+}
+
+model User {
+  id        String   @id @db.Uuid
+  name      String
+  email     String   @unique
+  role      UserRole @default(APPLICANT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications Application[] @relation("ApplicantApplications")
+  officerActions OfficerActionRecord[] @relation("OfficerActions")
+  auditLogs      AuditLog[] @relation("ActorAuditLogs")
+}
+
+
+model Application {
+  id             String @id @default(uuid()) @db.Uuid
+  applicationNo  String @unique
+  applicantId    String @db.Uuid
+
+  applicationDate DateTime @db.Date
+  fullName        String
+  dob             DateTime @db.Date
+  gender          String?
+  panNumber       String
+  aadhaarLast4    String
+  mobile          String
+  email           String
+  address         String
+  city            String
+  state           String
+  pincode         String
+  occupationCode  String
+  annualIncome    Decimal @db.Decimal(14, 2)
+  consentToKyc    Boolean @default(false)
+
+  status          ApplicationStatus @default(SUBMITTED)
+  decision        Decision?
+  reasonCodes     String[] @default([])
+  nameMatchScore  Decimal? @db.Decimal(5, 4)
+  riskCategory    RiskCategory?
+  rekycDueDate    DateTime? @db.Date
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  applicant       User @relation("ApplicantApplications", fields: [applicantId], references: [id])
+  documents       Document[]
+  decisions       KycDecision[]
+  officerActions  OfficerActionRecord[]
+  auditLogs       AuditLog[]
+
+  @@index([applicantId, createdAt])
+  @@index([status, riskCategory, createdAt])
+  @@index([panNumber])
+  @@map("applications")
+}
+
+model Document {
+  id                String @id @default(uuid()) @db.Uuid
+  documentNo        String @unique
+  applicationId     String @db.Uuid
+  declaredDocType   DocumentType
+  classifiedDocType DocumentType?
+  fileName          String
+  storagePath       String
+  sha256            String
+  mimeType          String
+  sizeBytes         Int
+  extractionSource  ExtractionSource?
+  extractionVersion String?
+  extractionStatus  String @default("PENDING")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  extractedFields   ExtractedField[]
+  auditLogs         AuditLog[]
+
+  @@unique([applicationId, sha256])
+  @@index([applicationId, createdAt])
+  @@map("documents")
+}
+
+model ExtractedField {
+  id          String @id @default(uuid()) @db.Uuid
+  documentId  String @db.Uuid
+  fieldName   String
+  value       String?
+  confidence  Decimal @db.Decimal(4, 3)
+  source      ExtractionSource
+  version     String?
+  createdAt   DateTime @default(now())
+
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, fieldName, createdAt])
+  @@map("extracted_fields")
+}
+
+model KycDecision {
+  id             String @id @default(uuid()) @db.Uuid
+  applicationId  String @db.Uuid
+  decision       Decision
+  reasonCodes    String[] @default([])
+  nameMatchScore Decimal? @db.Decimal(5, 4)
+  riskCategory   RiskCategory?
+  rekycDueDate   DateTime? @db.Date
+  rulesVersion   String
+  createdAt      DateTime @default(now())
+
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("kyc_decisions")
+}
+
+model OfficerActionRecord {
+  id             String @id @default(uuid()) @db.Uuid
+  applicationId  String @db.Uuid
+  officerId      String @db.Uuid
+  actionType     OfficerActionType
+  action         OfficerAction
+  comment        String
+  createdAt      DateTime @default(now())
+
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  officer        User @relation("OfficerActions", fields: [officerId], references: [id])
+
+  @@index([applicationId, createdAt])
+  @@index([officerId, createdAt])
+  @@map("officer_actions")
+}
+
+model AuditLog {
+  id             String @id @default(uuid()) @db.Uuid
+  applicationId  String @db.Uuid
+  actorId        String? @db.Uuid
+  documentId     String? @db.Uuid
+  eventType      String
+  beforeValue    Json?
+  afterValue     Json?
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  actor          User? @relation("ActorAuditLogs", fields: [actorId], references: [id])
+  document       Document? @relation(fields: [documentId], references: [id])
+
+  @@index([applicationId, createdAt])
+  @@index([documentId, createdAt])
+  @@map("audit_logs")
+}
+
+model WatchlistEntry {
+  id          String @id @default(uuid()) @db.Uuid
+  externalId  String
+  type        WatchlistType
+  name        String
+  alias       String?
+  dob         DateTime? @db.Date
+  nationality String?
+  program     String?
+  position    String?
+  category    String?
+  createdAt   DateTime @default(now())
+
+  @@unique([type, externalId])
+  @@index([type, name])
+  @@map("watchlist_entries")
+}
+
+model ExistingCustomer {
+  id         String @id @default(uuid()) @db.Uuid
+  customerId String @unique
+  fullName   String
+  panNumber  String @unique
+  dob        DateTime @db.Date
+
+  @@map("existing_customers")
+}
+
+model Occupation {
+  code        String @id
+  description String
+  riskLevel   RiskCategory
+
+  @@map("occupations")
+}
+
+model RuleConfiguration {
+  id        String @id @default(uuid()) @db.Uuid
+  key       String @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("rule_configurations")
+}
+
+model CoreBankingAccount {
+  id            String @id @default(uuid()) @db.Uuid
+  applicationId String @unique @db.Uuid
+  customerId    String @unique
+  accountNumber String @unique
+  createdAt     DateTime @default(now())
+
+  @@map("core_banking_accounts")
+} 
