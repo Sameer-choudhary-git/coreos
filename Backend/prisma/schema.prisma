@@ -161,7 +161,10 @@ model Document {
   application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   extractedFields   ExtractedField[]
   auditLogs         AuditLog[]
-
+  // OCR text and OCR-processing metadata
+  ocrText    String? @db.Text
+  ocrStatus  String  @default("PENDING")
+  ocrVersion String?
   @@unique([applicationId, sha256])
   @@index([applicationId, createdAt])
   @@map("documents")

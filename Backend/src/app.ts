@@ -5,14 +5,16 @@ import helmet from "helmet";
 import demoItemRouter from "./routes/demoItem.routes.js";
 import userRouter from "./routes/user.routes.js";
 import authRoutes from "./routes/auth.routes.js";
-import applicationRoutes from "./routes/application.routes.js";
 
 import rbacTestRoutes from "./routes/rbacTest.routes.js";
+import queueTestRoutes from "./routes/queueTest.routes.js";
 import {
   errorHandler,
   notFoundHandler,
 } from "./middleware/errorHandler.js";
 import { requireAuth } from "./middleware/auth.js";
+import applicationRoutes from "./routes/application.routes.js";
+
 
 import swaggerUi from "swagger-ui-express";
 import openApiSpec from "./config/openapi.js";
@@ -39,6 +41,7 @@ app.use("/api/v1/applications", applicationRoutes);
 // Existing application routes
 app.use("/api/demo-items", demoItemRouter);
 app.use("/api/users", userRouter);
+app.use("/api/v1/applications", applicationRoutes);
 
 // Get the currently authenticated user
 app.get("/api/me", requireAuth, (req, res) => {
@@ -67,6 +70,8 @@ app.get("/openapi.json", (_req, res) => {
 // Temporary RBAC test endpoints. Never expose in production.
 if (process.env.NODE_ENV !== "production") {
   app.use("/api/v1/rbac-test", rbacTestRoutes);
+    app.use("/api/v1/queue-test", queueTestRoutes);
+
 }
 // Error handling
 app.use(notFoundHandler);

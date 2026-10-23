@@ -28,7 +28,7 @@ export const submitApplication = async (
 
     return res.status(201).json({
       success: true,
-      message: "Application and documents submitted successfully",
+      message: "Application submitted, documents stored, OCR completed and processing queued",
       data: result,
     });
   } catch (error) {
